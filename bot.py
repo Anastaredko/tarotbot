@@ -848,12 +848,15 @@ def send_morning_cards():
                 print(f"❌ Ошибка отправки user {user_id}: {e}")
 
 def send_evening_feedback():
+    print("🚨 ЗАПУЩЕНА ФУНКЦИЯ ОБРАТНОЙ СВЯЗИ!")  # Это появится в логах консоли
     users = get_users_for_feedback()
-    if not users:
-        print("🌙 На сегодня все получили вечерний вопрос.")
-        return
-    print(f"🌙 Отправляем вечерний вопрос {len(users)} пользователям...")
     
+    if not users:
+        print("❌ Список пользователей пуст (некому писать).")
+        return
+
+    print(f"✅ Найдено пользователей для опроса: {len(users)}")
+
     for user_id in users:
         try:
             keyboard = InlineKeyboardMarkup(row_width=2)
@@ -864,7 +867,8 @@ def send_evening_feedback():
             ]
             keyboard.add(*buttons)
             
-            # ↓↓↓ ВАЖНО: Здесь не должно быть пробелов перед bot.send_message! ↓↓↓
+            print(f"📤 Пытаемся отправить сообщение пользователю {user_id}...")
+            
             bot.send_message(
                 user_id,
                 "🌙 Привет, зай! Ну как твой день?\n"
@@ -872,9 +876,11 @@ def send_evening_feedback():
                 "Мне очень важно знать, как работает моя магия ✨ Поделись своими мыслями, если не сложно! 👇",
                 reply_markup=keyboard
             )
+            print(f"✅ Сообщение успешно отправлено пользователю {user_id}!")
+            
             time.sleep(0.5)
         except Exception as e:
-            print(f"Ошибка при вечернем опросе user {user_id}: {e}")
+            print(f"❌ ОШИБКА при отправке пользователю {user_id}: {e}")
 
 def scheduler():
     while True:
