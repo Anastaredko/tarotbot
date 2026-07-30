@@ -8,7 +8,7 @@ from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ========== НАСТРОЙКИ ==========
-BOT_TOKEN = '8783106291:AAGQSNaDMOPJ-Vh4eQz7EXl74v02yqdKGkY'
+BOT_TOKEN = '8783106291:AAGa-qjrDKxTWMIUV6gYAA5vkIHskfF3ER0'
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
