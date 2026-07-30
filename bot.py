@@ -57,6 +57,17 @@ def get_user_card(user_id):
 
 init_db()
 
+def count_users():
+    """Возвращает количество пользователей в базе данных"""
+    conn = sqlite3.connect('tarot_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT COUNT(*) FROM users')
+    count = cursor.fetchone()[0]
+    
+    conn.close()
+    return count
+
 # ========== ВСЕ КАРТЫ ТАРО (С БОЛЬШИМИ ОПИСАНИЯМИ) ==========
 all_cards = [
     # ---------- СТАРШИЕ АРКАНЫ ----------
@@ -701,6 +712,30 @@ def echo_all(message):
         "🌟 Нажми на кнопку в меню!",
         reply_markup=get_main_menu()
     )
+
+@bot.message_handler(commands=['stats'])
+def show_stats(message):
+    # ТВОЙ TELEGRAM ID (замени на свой!)
+    ADMIN_ID = 605421591  # ← СЮДА ВСТАВЬ СВОЙ ID
+    
+    # Проверяем, кто написал
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Эта команда доступна только владельцу бота.")
+        return
+    
+    # Считаем пользователей
+    user_count = count_users()
+    
+    # Отправляем статистику
+    stats_text = (
+        f"📊 *Статистика бота*\n\n"
+        f"👥 Всего пользователей: *{user_count}*\n"
+        f"🃏 Карт в колоде: *78*\n"
+        f"📅 Активных сегодня: *{count_today_users()}*\n\n"
+        f"✨ Магия продолжается!"
+    )
+    
+    bot.reply_to(message, stats_text, parse_mode='Markdown')
 
 # ========== ЗАПУСК ==========
 print("🤖 Бот с ежедневными картами запущен!")
