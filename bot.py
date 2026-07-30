@@ -68,6 +68,18 @@ def count_users():
     conn.close()
     return count
 
+def count_today_users():
+    """Возвращает количество пользователей, получивших карту сегодня"""
+    conn = sqlite3.connect('tarot_bot.db')
+    cursor = conn.cursor()
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    cursor.execute('SELECT COUNT(*) FROM users WHERE date = ?', (today,))
+    count = cursor.fetchone()[0]
+    
+    conn.close()
+    return count
+
 # ========== ВСЕ КАРТЫ ТАРО (С БОЛЬШИМИ ОПИСАНИЯМИ) ==========
 all_cards = [
     # ---------- СТАРШИЕ АРКАНЫ ----------
