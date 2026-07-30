@@ -10,36 +10,6 @@ BOT_TOKEN = '8783106291:AAGQSNaDMOPJ-Vh4eQz7EXl74v02yqdKGkY'
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    # Твой идеальный текст
-    welcome_text = (
-        f"Привет! Я стану для тебя той самой подружкой-тарологом.\n"
-        f"🔮 Хочешь заглянуть в будущее и понять, что тебя ждёт сегодня? Я вытяну для тебя одну карту, которая подскажет верное направление.\n\n"
-        f"🃏 Идеально для начала дня: Просто нажми кнопку ниже, и я расскажу, какой энергии ждать от сегодня, а также дам совет, как прожить этот день с максимальной пользой.\n\n"
-        f"✨ Каждая карта объясняется простым и понятным языком, чтобы у тебя была простая возможность применить совет в жизни.\n\n"
-        f"👇 Самое время узнать, что тебе приготовил сегодняшний день! Нажимай кнопку и получай ответ!"
-    )
-
-    # Кнопка "Моя карта дня"
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    btn_day_card = types.InlineKeyboardButton("🃏 Моя карта дня", callback_data='day_card')
-    markup.add(btn_day_card)
-
-    bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
-
-
-@bot.callback_query_handler(func=lambda call: True)
-def handle_query(call):
-    if call.data == 'day_card':
-        # Тут будет твой код с выбором карты
-        bot.send_message(call.message.chat.id, "Хорошо! Давай посмотрим, что сегодня для тебя приготовили звезды... ✨")
-        
-    bot.answer_callback_query(call.id)
-
-if __name__ == '__main__':
-    bot.infinity_polling()
-
 # ========== ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ ==========
 def init_db():
     conn = sqlite3.connect('tarot_bot.db')
@@ -88,29 +58,23 @@ def get_user_card(user_id):
 init_db()
 
 def count_users():
-    """Возвращает количество пользователей в базе данных"""
     conn = sqlite3.connect('tarot_bot.db')
     cursor = conn.cursor()
-    
     cursor.execute('SELECT COUNT(*) FROM users')
     count = cursor.fetchone()[0]
-    
     conn.close()
     return count
 
 def count_today_users():
-    """Возвращает количество пользователей, получивших карту сегодня"""
     conn = sqlite3.connect('tarot_bot.db')
     cursor = conn.cursor()
     today = datetime.now().strftime('%Y-%m-%d')
-    
     cursor.execute('SELECT COUNT(*) FROM users WHERE date = ?', (today,))
     count = cursor.fetchone()[0]
-    
     conn.close()
     return count
 
-# ========== ВСЕ КАРТЫ ТАРО (С БОЛЬШИМИ ОПИСАНИЯМИ) ==========
+# ========== ВСЕ КАРТЫ ТАРО (БОЛЬШИЕ ОПИСАНИЯ) ==========
 all_cards = [
     # ---------- СТАРШИЕ АРКАНЫ ----------
     {
@@ -651,11 +615,13 @@ def send_card(message, is_today=True):
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
+    # ТВОЙ НОВЫЙ ТЕКСТ ПОДРУЖКИ-ТАРОЛОГА
     welcome_text = (
-        "🔮 *Приветствую, искатель мудрости!*\n\n"
-        "Я твой личный оракул Таро. Каждый день я буду открывать тебе одну карту.\n\n"
-        "✨ Нажми *«Карта дня»*, чтобы получить своё послание.\n"
-        "Каждый пользователь получает уникальную карту, и она будет ждать тебя весь день."
+        f"Привет! Я стану для тебя той самой подружкой-тарологом.\n"
+        f"🔮 Хочешь заглянуть в будущее и понять, что тебя ждёт сегодня? Я вытяну для тебя одну карту, которая подскажет верное направление.\n\n"
+        f"🃏 Идеально для начала дня: Просто нажми кнопку ниже, и я расскажу, какой энергии ждать от сегодня, а также дам совет, как прожить этот день с максимальной пользой.\n\n"
+        f"✨ Каждая карта объясняется простым и понятным языком, чтобы у тебя была простая возможность применить совет в жизни.\n\n"
+        f"👇 Самое время узнать, что тебе приготовил сегодняшний день! Нажимай кнопку и получай ответ!"
     )
     bot.send_message(
         message.chat.id,
@@ -764,7 +730,7 @@ def show_stats(message):
         return
     
     user_count = count_users()
-    today_count = count_today_users()  # если есть такая функция
+    today_count = count_today_users()
     
     stats_text = (
         f"📊 *Статистика бота*\n\n"
