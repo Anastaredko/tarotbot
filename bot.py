@@ -727,26 +727,22 @@ def echo_all(message):
 
 @bot.message_handler(commands=['stats'])
 def show_stats(message):
-    # ТВОЙ TELEGRAM ID (замени на свой!)
-    ADMIN_ID = 605421591  # ← СЮДА ВСТАВЬ СВОЙ ID
+    ADMIN_ID = 605421591
     
-    # Проверяем, кто написал
     if message.from_user.id != ADMIN_ID:
         bot.reply_to(message, "⛔ Эта команда доступна только владельцу бота.")
         return
     
-    # Считаем пользователей
     user_count = count_users()
+    today_count = count_today_users()  # если есть такая функция
     
-    # Отправляем статистику
     stats_text = (
         f"📊 *Статистика бота*\n\n"
         f"👥 Всего пользователей: *{user_count}*\n"
-        f"🃏 Карт в колоде: *78*\n"
-        f"📅 Активных сегодня: *{count_today_users()}*\n\n"
+        f"📅 Получили карту сегодня: *{today_count}*\n"
+        f"🃏 Карт в колоде: *78*\n\n"
         f"✨ Магия продолжается!"
     )
-    
     bot.reply_to(message, stats_text, parse_mode='Markdown')
 
 # ========== ЗАПУСК ==========
