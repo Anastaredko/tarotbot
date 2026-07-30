@@ -1,12 +1,66 @@
 import telebot
 import random
 import os
+import sqlite3
+from datetime import datetime
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from telebot import apihelper
 
 # ========== НАСТРОЙКИ ==========
 BOT_TOKEN = '8783106291:AAGQSNaDMOPJ-Vh4eQz7EXl74v02yqdKGkY'
 
 bot = telebot.TeleBot(BOT_TOKEN)
+
+# ========== ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ ==========
+def init_db():
+    """Создаёт таблицу users, если её нет"""
+    conn = sqlite3.connect('tarot_bot.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            card_name TEXT,
+            card_suit TEXT,
+            card_meaning TEXT,
+            card_number TEXT,
+            date TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def save_user_card(user_id, card_name, card_suit, card_meaning, card_number):
+    """Сохраняет карту для пользователя на сегодня"""
+    conn = sqlite3.connect('tarot_bot.db')
+    cursor = conn.cursor()
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    cursor.execute('''
+        INSERT OR REPLACE INTO users (user_id, card_name, card_suit, card_meaning, card_number, date)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (user_id, card_name, card_suit, card_meaning, card_number, today))
+    
+    conn.commit()
+    conn.close()
+
+def get_user_card(user_id):
+    """Получает карту пользователя на сегодня"""
+    conn = sqlite3.connect('tarot_bot.db')
+    cursor = conn.cursor()
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    cursor.execute('''
+        SELECT card_name, card_suit, card_meaning, card_number, date
+        FROM users
+        WHERE user_id = ? AND date = ?
+    ''', (user_id, today))
+    
+    result = cursor.fetchone()
+    conn.close()
+    return result  # (card_name, card_suit, card_meaning, card_number, date) или None
+
+# ========== ИНИЦИАЛИЗАЦИЯ БАЗЫ ==========
+init_db()
 
 # ========== ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ НОМЕРА КАРТИНКИ ==========
 
@@ -542,46 +596,77 @@ def send_welcome(message):
     bot.reply_to(message, welcome_text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['card'])
-def send_tarot_card(message):
-    # Выбираем случайную карту
+def send_card(message, is_today=True):
+    user_id = message.chat.id
+    
+    # Проверяем, есть ли у пользователя карта на сегодня
+    user_card = get_user_card(user_id)
+    
+    if user_card:
+        # Если карта уже есть — показываем её
+        card_name, card_suit, card_meaning, card_number, date = user_card
+        
+        # Если пользователь уже получил карту сегодня
+        if is_today:
+            response_text = (
+                f"🌟 *Твоя карта дня уже ждала тебя!*\n\n"
+                f"🃏 *{card_name}*\n"
+                f"📜 *{card_suit}*\n\n"
+                f"_{card_meaning}_\n\n"
+                f"✨ Сегодня тебя ждёт именно это послание. Вернись к нему в течение дня."
+            )
+            
+            image_path = find_image(card_number)
+            if image_path:
+                with open(image_path, 'rb') as photo:
+                    bot.send_photo(
+                        message.chat.id,
+                        photo,
+                        caption=response_text,
+                        parse_mode='Markdown',
+                        reply_markup=get_after_card_menu()
+                    )
+            else:
+                bot.send_message(
+                    message.chat.id,
+                    response_text,
+                    parse_mode='Markdown',
+                    reply_markup=get_after_card_menu()
+                )
+            return
+    
+    # Если карты нет — создаём новую
     card = random.choice(all_cards)
+    card_number = card_numbers.get(card['name'], "00")
     
-    # Получаем имя файла картинки (например, "22.jpg")
-    filename = get_image_filename(card['name'], card['suit'])
-    image_path = os.path.join('images', filename)
+    # Сохраняем в базу
+    save_user_card(user_id, card['name'], card['suit'], card['meaning'], card_number)
     
-    # Формируем текст сообщения
     response_text = (
         f"🌟 *Твоя карта дня:*\n\n"
         f"🃏 *{card['name']}*\n"
         f"📜 *{card['suit']}*\n\n"
-        f"📖 *Послание карты:*\n"
         f"_{card['meaning']}_\n\n"
-        f"✨ Пусть этот день принесет тебе мудрость и вдохновение!"
+        f"✨ Сохрани это послание в своём сердце на сегодня."
     )
     
-    # Пытаемся отправить картинку
-    try:
+    image_path = find_image(card_number)
+    if image_path:
         with open(image_path, 'rb') as photo:
             bot.send_photo(
                 message.chat.id,
                 photo,
                 caption=response_text,
-                parse_mode='Markdown'
+                parse_mode='Markdown',
+                reply_markup=get_after_card_menu()
             )
-    except FileNotFoundError:
-        # Если картинка не найдена, отправляем только текст
-        bot.reply_to(
-            message,
-            f"🃏 *{card['name']}*\n\n_{card['meaning']}_",
-            parse_mode='Markdown'
+    else:
+        bot.send_message(
+            message.chat.id,
+            response_text,
+            parse_mode='Markdown',
+            reply_markup=get_after_card_menu()
         )
-        print(f"❌ Файл не найден: {image_path}")
-    except Exception as e:
-        # Если другая ошибка
-        bot.reply_to(message, response_text, parse_mode='Markdown')
-        print(f"❌ Ошибка при отправке картинки: {e}")
-
 @bot.message_handler(commands=['info'])
 def send_info(message):
     info_text = (
@@ -610,6 +695,25 @@ def send_help(message):
 @bot.message_handler(func=lambda message: True)
 def echo_all(message):
     bot.reply_to(message, "🌟 Я тебя слышу! Напиши /card, чтобы получить карту дня.")
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    bot.answer_callback_query(call.id)
+    
+    if call.data == "card":
+        send_card(call.message, is_today=True)
+    elif call.data == "info":
+        send_info(call.message)
+    elif call.data == "help":
+        send_help(call.message)
+    elif call.data == "menu":
+        bot.edit_message_text(
+            "🔮 *Главное меню*\n\nВыбери действие:",
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode='Markdown',
+            reply_markup=get_main_menu()
+        )
 
 # ========== ЗАПУСК ==========
 print("🤖 Бот запущен и готов к работе!")
