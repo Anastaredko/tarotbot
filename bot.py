@@ -213,33 +213,32 @@ def send_card(message, is_today=True):
         # Если карта уже есть — показываем её
         card_name, card_suit, card_meaning, card_number, date = user_card
         
-        if is_today:
-            response_text = (
-                f"🌟 *Твоя карта дня уже ждала тебя!*\n\n"
-                f"🃏 *{card_name}*\n"
-                f"📜 *{card_suit}*\n\n"
-                f"_{card_meaning}_\n\n"
-                f"✨ Сегодня тебя ждёт именно это послание. Вернись к нему в течение дня."
-            )
-            
-            image_path = find_image(card_number)
-            if image_path:
-                with open(image_path, 'rb') as photo:
-                    bot.send_photo(
-                        message.chat.id,
-                        photo,
-                        caption=response_text,
-                        parse_mode='Markdown',
-                        reply_markup=get_after_card_menu()
-                    )
-            else:
-                bot.send_message(
+        response_text = (
+            f"🌟 *Твоя карта дня уже ждала тебя!*\n\n"
+            f"🃏 *{card_name}*\n"
+            f"📜 *{card_suit}*\n\n"
+            f"_{card_meaning}_\n\n"
+            f"✨ Сегодня тебя ждёт именно это послание. Вернись к нему в течение дня."
+        )
+        
+        image_path = find_image(card_number)
+        if image_path:
+            with open(image_path, 'rb') as photo:
+                bot.send_photo(
                     message.chat.id,
-                    response_text,
+                    photo,
+                    caption=response_text,
                     parse_mode='Markdown',
                     reply_markup=get_after_card_menu()
                 )
-            return
+        else:
+            bot.send_message(
+                message.chat.id,
+                response_text,
+                parse_mode='Markdown',
+                reply_markup=get_after_card_menu()
+            )
+        return  # ← ВАЖНО! Выходим из функции, чтобы не создавать новую карту
     
     # Если карты нет — создаём новую
     card = random.choice(all_cards)
