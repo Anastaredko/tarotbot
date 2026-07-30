@@ -2,6 +2,8 @@ import telebot
 import random
 import os
 import sqlite3
+import time
+import threading
 from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -21,11 +23,40 @@ def init_db():
             card_suit TEXT,
             card_meaning TEXT,
             card_number TEXT,
-            date TEXT
+            date TEXT,
+            subscribed INTEGER DEFAULT 0
         )
     ''')
     conn.commit()
     conn.close()
+
+def toggle_subscription(user_id):
+    conn = sqlite3.connect('tarot_bot.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT subscribed FROM users WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    
+    if result:
+        current_status = result[0]
+        new_status = 1 if current_status == 0 else 0
+        cursor.execute('UPDATE users SET subscribed = ? WHERE user_id = ?', (new_status, user_id))
+        conn.commit()
+        conn.close()
+        return new_status
+    else:
+        cursor.execute('INSERT OR REPLACE INTO users (user_id, subscribed) VALUES (?, ?)', (user_id, 1))
+        conn.commit()
+        conn.close()
+        return 1
+
+def get_subscribed_users():
+    conn = sqlite3.connect('tarot_bot.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id FROM users WHERE subscribed = 1')
+    users = cursor.fetchall()
+    conn.close()
+    return [user[0] for user in users]
 
 def save_user_card(user_id, card_name, card_suit, card_meaning, card_number):
     conn = sqlite3.connect('tarot_bot.db')
@@ -74,7 +105,286 @@ def count_today_users():
     conn.close()
     return count
 
-# ========== ВСЕ КАРТЫ ТАРО (БОЛЬШИЕ ОПИСАНИЯ) ==========
+# ========== ФУНКЦИЯ ПОИСКА КАРТИНКИ ==========
+card_numbers = {
+    "Шут": "00", "Маг": "01", "Верховная Жрица": "02",
+    "Императрица": "03", "Император": "04", "Иерофант": "05",
+    "Влюбленные": "06", "Колесница": "07", "Сила": "08",
+    "Отшельник": "09", "Колесо Фортуны": "10", "Справедливость": "11",
+    "Повешенный": "12", "Смерть": "13", "Умеренность": "14",
+    "Дьявол": "15", "Башня": "16", "Звезда": "17",
+    "Луна": "18", "Солнце": "19", "Суд": "20", "Мир": "21",
+    "Туз Жезлов": "22", "Двойка Жезлов": "23", "Тройка Жезлов": "24",
+    "Четверка Жезлов": "25", "Пятерка Жезлов": "26", "Шестерка Жезлов": "27",
+    "Семерка Жезлов": "28", "Восьмерка Жезлов": "29", "Девятка Жезлов": "30",
+    "Десятка Жезлов": "31", "Паж Жезлов": "32", "Рыцарь Жезлов": "33",
+    "Королева Жезлов": "34", "Король Жезлов": "35",
+    "Туз Кубков": "36", "Двойка Кубков": "37", "Тройка Кубков": "38",
+    "Четверка Кубков": "39", "Пятерка Кубков": "40", "Шестерка Кубков": "41",
+    "Семерка Кубков": "42", "Восьмерка Кубков": "43", "Девятка Кубков": "44",
+    "Десятка Кубков": "45", "Паж Кубков": "46", "Рыцарь Кубков": "47",
+    "Королева Кубков": "48", "Король Кубков": "49",
+    "Туз Мечей": "50", "Двойка Мечей": "51", "Тройка Мечей": "52",
+    "Четверка Мечей": "53", "Пятерка Мечей": "54", "Шестерка Мечей": "55",
+    "Семерка Мечей": "56", "Восьмерка Мечей": "57", "Девятка Мечей": "58",
+    "Десятка Мечей": "59", "Паж Мечей": "60", "Рыцарь Мечей": "61",
+    "Королева Мечей": "62", "Король Мечей": "63",
+    "Туз Пентаклей": "64", "Двойка Пентаклей": "65", "Тройка Пентаклей": "66",
+    "Четверка Пентаклей": "67", "Пятерка Пентаклей": "68", "Шестерка Пентаклей": "69",
+    "Семерка Пентаклей": "70", "Восьмерка Пентаклей": "71", "Девятка Пентаклей": "72",
+    "Десятка Пентаклей": "73", "Паж Пентаклей": "74", "Рыцарь Пентаклей": "75",
+    "Королева Пентаклей": "76", "Король Пентаклей": "77"
+}
+
+def find_image(card_number):
+    possible_paths = [
+        f"images/{card_number}.jpg",
+        f"images/{card_number}.jpeg",
+        f"./{card_number}.jpg",
+        f"./{card_number}.jpeg",
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    return None
+
+# ========== КНОПКИ ==========
+def get_main_menu():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    buttons = [
+        InlineKeyboardButton("🔮 Карта дня", callback_data="card"),
+        InlineKeyboardButton("📜 О Таро", callback_data="info"),
+        InlineKeyboardButton("🆘 Помощь", callback_data="help"),
+    ]
+    keyboard.add(*buttons)
+    return keyboard
+
+def get_sub_menu(user_id):
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    conn = sqlite3.connect('tarot_bot.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT subscribed FROM users WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    is_subscribed = result[0] if result else 0
+    
+    if is_subscribed == 1:
+        btn_sub = InlineKeyboardButton("❌ Отписаться от рассылки", callback_data="unsubscribe")
+    else:
+        btn_sub = InlineKeyboardButton("🔔 Подписаться на карту дня на 9:00", callback_data="subscribe")
+        
+    buttons = [
+        InlineKeyboardButton("🔮 Карта дня", callback_data="card"),
+        InlineKeyboardButton("📜 О Таро", callback_data="info"),
+        btn_sub,
+        InlineKeyboardButton("🆘 Помощь", callback_data="help"),
+    ]
+    keyboard.add(*buttons)
+    return keyboard
+
+def get_after_card_menu():
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    buttons = [
+        InlineKeyboardButton("🏠 В меню", callback_data="menu"),
+    ]
+    keyboard.add(*buttons)
+    return keyboard
+
+# ========== ГЛАВНАЯ ФУНКЦИЯ ОТПРАВКИ КАРТЫ ==========
+def send_card(message, is_today=True):
+    user_id = message.chat.id
+    user_card = get_user_card(user_id)
+    
+    if user_card:
+        card_name, card_suit, card_meaning, card_number, date = user_card
+        response_text = (
+            f"🌟 *Твоя карта дня уже ждала тебя!*\n\n"
+            f"🃏 *{card_name}*\n"
+            f"📜 *{card_suit}*\n\n"
+            f"_{card_meaning}_\n\n"
+            f"✨ Сегодня тебя ждёт именно это послание. Вернись к нему в течение дня."
+        )
+        image_path = find_image(card_number)
+        if image_path:
+            with open(image_path, 'rb') as photo:
+                bot.send_photo(message.chat.id, photo, caption=response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
+        else:
+            bot.send_message(message.chat.id, response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
+        return 
+    
+    card = random.choice(all_cards)
+    card_number = card_numbers.get(card['name'], "00")
+    save_user_card(user_id, card['name'], card['suit'], card['meaning'], card_number)
+    
+    response_text = (
+        f"🌟 *Твоя карта дня:*\n\n"
+        f"🃏 *{card['name']}*\n"
+        f"📜 *{card['suit']}*\n\n"
+        f"_{card['meaning']}_\n\n"
+        f"✨ Сохрани это послание в своём сердце на сегодня."
+    )
+    image_path = find_image(card_number)
+    if image_path:
+        with open(image_path, 'rb') as photo:
+            bot.send_photo(message.chat.id, photo, caption=response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
+    else:
+        bot.send_message(message.chat.id, response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
+
+# ========== КОМАНДЫ И КНОПКИ ==========
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    welcome_text = (
+        f"Привет! Я стану для тебя той самой подружкой-тарологом.\n"
+        f"🔮 Хочешь заглянуть в будущее и понять, что тебя ждёт сегодня? Я вытяну для тебя одну карту, которая подскажет верное направление.\n\n"
+        f"🃏 Идеально для начала дня: Просто нажми кнопку ниже, и я расскажу, какой энергии ждать от сегодня, а также дам совет, как прожить этот день с максимальной пользой.\n\n"
+        f"✨ Каждая карта объясняется простым и понятным языком, чтобы у тебя была простая возможность применить совет в жизни.\n\n"
+        f"👇 Самое время узнать, что тебе приготовил сегодняшний день! Нажимай кнопку и получай ответ!"
+    )
+    
+    image_path = "welcome.jpg"
+    try:
+        with open(image_path, 'rb') as photo:
+            bot.send_photo(
+                message.chat.id,
+                photo,
+                caption=welcome_text,
+                parse_mode='Markdown',
+                reply_markup=get_sub_menu(message.chat.id)
+            )
+    except:
+        bot.send_message(
+            message.chat.id,
+            welcome_text,
+            parse_mode='Markdown',
+            reply_markup=get_sub_menu(message.chat.id)
+        )
+
+@bot.message_handler(commands=['card'])
+def card_command(message):
+    send_card(message, is_today=True)
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    bot.answer_callback_query(call.id)
+    
+    if call.data == "card":
+        send_card(call.message, is_today=True)
+    elif call.data == "info":
+        send_info(call.message)
+    elif call.data == "help":
+        send_help(call.message)
+    elif call.data == "subscribe":
+        toggle_subscription(call.from_user.id)
+        bot.edit_message_text(
+            "✅ Ты подписалась! Теперь каждое утро в 9:00 я буду присылать тебе твою Карту дня. 🌅",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=get_sub_menu(call.from_user.id)
+        )
+    elif call.data == "unsubscribe":
+        toggle_subscription(call.from_user.id)
+        bot.edit_message_text(
+            "😔 Ты отписалась от утренних карт. Если передумаешь, я всегда здесь!",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=get_sub_menu(call.from_user.id)
+        )
+    elif call.data == "menu":
+        try:
+            bot.edit_message_text(
+                "🔮 *Главное меню*\n\nВыбери действие:",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                parse_mode='Markdown',
+                reply_markup=get_sub_menu(call.from_user.id)
+            )
+        except Exception as e:
+            bot.send_message(
+                call.message.chat.id,
+                "🔮 *Главное меню*\n\nВыбери действие:",
+                parse_mode='Markdown',
+                reply_markup=get_sub_menu(call.from_user.id)
+            )
+
+def send_info(message):
+    info_text = (
+        "📜 *О картах Таро:*\n\n"
+        "Таро — это древняя система символов, помогающая понять себя и мир вокруг.\n\n"
+        "🃏 В моей колоде 78 карт:\n"
+        "• 22 *Старших Аркана* — судьба и духовный путь\n"
+        "• 56 *Младших Арканов* — повседневные события\n\n"
+        "✨ Каждый день ты получаешь только одну карту. Доверься её мудрости."
+    )
+    try:
+        bot.edit_message_text(info_text, message.chat.id, message.message_id, parse_mode='Markdown', reply_markup=get_main_menu())
+    except:
+        bot.send_message(message.chat.id, info_text, parse_mode='Markdown', reply_markup=get_main_menu())
+
+def send_help(message):
+    help_text = (
+        "🔮 *Доступные команды:*\n\n"
+        "🔹 */start* — главное меню\n"
+        "🔹 */card* — показать карту дня\n"
+        "🔹 */info* — о Таро\n\n"
+        "✨ Твоя карта дня уникальна и ждёт тебя ровно один день."
+    )
+    try:
+        bot.edit_message_text(help_text, message.chat.id, message.message_id, parse_mode='Markdown', reply_markup=get_main_menu())
+    except:
+        bot.send_message(message.chat.id, help_text, parse_mode='Markdown', reply_markup=get_main_menu())
+
+@bot.message_handler(func=lambda message: True)
+def echo_all(message):
+    bot.send_message(message.chat.id, "🌟 Нажми на кнопку в меню!", reply_markup=get_main_menu())
+
+@bot.message_handler(commands=['stats'])
+def show_stats(message):
+    ADMIN_ID = 605421591
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Эта команда доступна только владельцу бота.")
+        return
+    
+    user_count = count_users()
+    today_count = count_today_users()
+    
+    stats_text = (
+        f"📊 *Статистика бота*\n\n"
+        f"👥 Всего пользователей: *{user_count}*\n"
+        f"📅 Получили карту сегодня: *{today_count}*\n"
+        f"🃏 Карт в колоде: *78*\n\n"
+        f"✨ Магия продолжается!"
+    )
+    bot.reply_to(message, stats_text, parse_mode='Markdown')
+
+# ========== РАССЫЛКА ПО РАСПИСАНИЮ ==========
+def send_morning_cards():
+    users = get_subscribed_users()
+    if not users:
+        return
+    print(f"⏰ Рассылка в 9:00 для {len(users)} пользователей...")
+    for user_id in users:
+        try:
+            fake_message = type('obj', (object,), {'chat': type('obj', (object,), {'id': user_id})})()
+            fake_message.chat.id = user_id
+            send_card(fake_message, is_today=True)
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"Ошибка отправки user {user_id}: {e}")
+
+def scheduler():
+    while True:
+        now = datetime.now().strftime("%H:%M")
+        if now == "09:00":
+            send_morning_cards()
+            time.sleep(60)
+        time.sleep(30)
+
+threading.Thread(target=scheduler, daemon=True).start()
+
+
+# ========== ВСЕ КАРТЫ ТАРО ==========
+# Поскольку список огромный, я вставляю его сюда, в самый низ, перед запуском.
+# Из-за того, что Python читает код сверху вниз, переменная all_cards будет доступна для send_card.
 all_cards = [
     # ---------- СТАРШИЕ АРКАНЫ ----------
     {
@@ -477,283 +787,7 @@ all_cards = [
     }
 ]
 
-# ========== ФУНКЦИЯ ПОИСКА КАРТИНКИ ==========
-card_numbers = {
-    "Шут": "00", "Маг": "01", "Верховная Жрица": "02",
-    "Императрица": "03", "Император": "04", "Иерофант": "05",
-    "Влюбленные": "06", "Колесница": "07", "Сила": "08",
-    "Отшельник": "09", "Колесо Фортуны": "10", "Справедливость": "11",
-    "Повешенный": "12", "Смерть": "13", "Умеренность": "14",
-    "Дьявол": "15", "Башня": "16", "Звезда": "17",
-    "Луна": "18", "Солнце": "19", "Суд": "20", "Мир": "21",
-    "Туз Жезлов": "22", "Двойка Жезлов": "23", "Тройка Жезлов": "24",
-    "Четверка Жезлов": "25", "Пятерка Жезлов": "26", "Шестерка Жезлов": "27",
-    "Семерка Жезлов": "28", "Восьмерка Жезлов": "29", "Девятка Жезлов": "30",
-    "Десятка Жезлов": "31", "Паж Жезлов": "32", "Рыцарь Жезлов": "33",
-    "Королева Жезлов": "34", "Король Жезлов": "35",
-    "Туз Кубков": "36", "Двойка Кубков": "37", "Тройка Кубков": "38",
-    "Четверка Кубков": "39", "Пятерка Кубков": "40", "Шестерка Кубков": "41",
-    "Семерка Кубков": "42", "Восьмерка Кубков": "43", "Девятка Кубков": "44",
-    "Десятка Кубков": "45", "Паж Кубков": "46", "Рыцарь Кубков": "47",
-    "Королева Кубков": "48", "Король Кубков": "49",
-    "Туз Мечей": "50", "Двойка Мечей": "51", "Тройка Мечей": "52",
-    "Четверка Мечей": "53", "Пятерка Мечей": "54", "Шестерка Мечей": "55",
-    "Семерка Мечей": "56", "Восьмерка Мечей": "57", "Девятка Мечей": "58",
-    "Десятка Мечей": "59", "Паж Мечей": "60", "Рыцарь Мечей": "61",
-    "Королева Мечей": "62", "Король Мечей": "63",
-    "Туз Пентаклей": "64", "Двойка Пентаклей": "65", "Тройка Пентаклей": "66",
-    "Четверка Пентаклей": "67", "Пятерка Пентаклей": "68", "Шестерка Пентаклей": "69",
-    "Семерка Пентаклей": "70", "Восьмерка Пентаклей": "71", "Девятка Пентаклей": "72",
-    "Десятка Пентаклей": "73", "Паж Пентаклей": "74", "Рыцарь Пентаклей": "75",
-    "Королева Пентаклей": "76", "Король Пентаклей": "77"
-}
-
-def find_image(card_number):
-    possible_paths = [
-        f"images/{card_number}.jpg",
-        f"images/{card_number}.jpeg",
-        f"./{card_number}.jpg",
-        f"./{card_number}.jpeg",
-    ]
-    
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
-    return None
-
-# ========== КНОПКИ ==========
-def get_main_menu():
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    buttons = [
-        InlineKeyboardButton("🔮 Карта дня", callback_data="card"),
-        InlineKeyboardButton("📜 О Таро", callback_data="info"),
-        InlineKeyboardButton("🆘 Помощь", callback_data="help"),
-    ]
-    keyboard.add(*buttons)
-    return keyboard
-
-def get_after_card_menu():
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    buttons = [
-        InlineKeyboardButton("🏠 В меню", callback_data="menu"),
-    ]
-    keyboard.add(*buttons)
-    return keyboard
-
-# ========== ГЛАВНАЯ ФУНКЦИЯ ОТПРАВКИ КАРТЫ ==========
-def send_card(message, is_today=True):
-    user_id = message.chat.id
-    
-    # Проверяем, есть ли у пользователя карта на сегодня
-    user_card = get_user_card(user_id)
-    
-    if user_card:
-        # Если карта уже есть — показываем её
-        card_name, card_suit, card_meaning, card_number, date = user_card
-        
-        response_text = (
-            f"🌟 *Твоя карта дня уже ждала тебя!*\n\n"
-            f"🃏 *{card_name}*\n"
-            f"📜 *{card_suit}*\n\n"
-            f"_{card_meaning}_\n\n"
-            f"✨ Сегодня тебя ждёт именно это послание. Вернись к нему в течение дня."
-        )
-        
-        image_path = find_image(card_number)
-        if image_path:
-            with open(image_path, 'rb') as photo:
-                bot.send_photo(
-                    message.chat.id,
-                    photo,
-                    caption=response_text,
-                    parse_mode='Markdown',
-                    reply_markup=get_after_card_menu()
-                )
-        else:
-            bot.send_message(
-                message.chat.id,
-                response_text,
-                parse_mode='Markdown',
-                reply_markup=get_after_card_menu()
-            )
-        return  # ← ВАЖНО! Выходим из функции, чтобы не создавать новую карту
-    
-    # Если карты нет — создаём новую
-    card = random.choice(all_cards)
-    card_number = card_numbers.get(card['name'], "00")
-    
-    # Сохраняем в базу
-    save_user_card(user_id, card['name'], card['suit'], card['meaning'], card_number)
-    
-    response_text = (
-        f"🌟 *Твоя карта дня:*\n\n"
-        f"🃏 *{card['name']}*\n"
-        f"📜 *{card['suit']}*\n\n"
-        f"_{card['meaning']}_\n\n"
-        f"✨ Сохрани это послание в своём сердце на сегодня."
-    )
-    
-    image_path = find_image(card_number)
-    if image_path:
-        with open(image_path, 'rb') as photo:
-            bot.send_photo(
-                message.chat.id,
-                photo,
-                caption=response_text,
-                parse_mode='Markdown',
-                reply_markup=get_after_card_menu()
-            )
-    else:
-        bot.send_message(
-            message.chat.id,
-            response_text,
-            parse_mode='Markdown',
-            reply_markup=get_after_card_menu()
-        )
-
-# ========== КОМАНДЫ И КНОПКИ ==========
-
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    welcome_text = (
-        f"Привет, {message.from_user.first_name}! ✨\n\n"
-        f"Раз ты здесь, значит, ждёшь узнать, что сегодняшний день приготовил для тебя.\n"
-        f"Я уже всё приготовила, чтобы тебе не пришлось попусту гадать. 🃏\n\n"
-        f"👇 Нажимай «Карта дня» и получай своё послание!"
-    )
-
-    # Отправляем нашу новую квадратную картинку
-    image_path = "images/welcome.jpg"
-    
-    try:
-        with open(image_path, 'rb') as photo:
-            bot.send_photo(
-                message.chat.id,
-                photo,
-                caption=welcome_text,
-                parse_mode='Markdown',
-                reply_markup=get_main_menu()
-            )
-    except FileNotFoundError:
-        # Если сервер почему-то не увидит картинку, бот просто отправит текст
-        bot.send_message(
-            message.chat.id,
-            welcome_text,
-            parse_mode='Markdown',
-            reply_markup=get_main_menu()
-        )
-
-@bot.message_handler(commands=['card'])
-def card_command(message):
-    send_card(message, is_today=True)
-
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callback(call):
-    bot.answer_callback_query(call.id)
-    
-    if call.data == "card":
-        send_card(call.message, is_today=True)
-    elif call.data == "info":
-        send_info(call.message)
-    elif call.data == "help":
-        send_help(call.message)
-    elif call.data == "menu":
-        # Возвращаем главное меню (редактируем сообщение)
-        try:
-            bot.edit_message_text(
-                "🔮 *Главное меню*\n\nВыбери действие:",
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                parse_mode='Markdown',
-                reply_markup=get_main_menu()
-            )
-        except Exception as e:
-            # Если не получилось отредактировать — отправляем новое сообщение
-            bot.send_message(
-                call.message.chat.id,
-                "🔮 *Главное меню*\n\nВыбери действие:",
-                parse_mode='Markdown',
-                reply_markup=get_main_menu()
-            )
-            print(f"Ошибка при редактировании: {e}")
-
-def send_info(message):
-    info_text = (
-        "📜 *О картах Таро:*\n\n"
-        "Таро — это древняя система символов, помогающая понять себя и мир вокруг.\n\n"
-        "🃏 В моей колоде 78 карт:\n"
-        "• 22 *Старших Аркана* — судьба и духовный путь\n"
-        "• 56 *Младших Арканов* — повседневные события\n\n"
-        "✨ Каждый день ты получаешь только одну карту. Доверься её мудрости."
-    )
-    try:
-        bot.edit_message_text(
-            info_text,
-            message.chat.id,
-            message.message_id,
-            parse_mode='Markdown',
-            reply_markup=get_main_menu()
-        )
-    except:
-        bot.send_message(
-            message.chat.id,
-            info_text,
-            parse_mode='Markdown',
-            reply_markup=get_main_menu()
-        )
-
-def send_help(message):
-    help_text = (
-        "🔮 *Доступные команды:*\n\n"
-        "🔹 */start* — главное меню\n"
-        "🔹 */card* — показать карту дня\n"
-        "🔹 */info* — о Таро\n\n"
-        "✨ Твоя карта дня уникальна и ждёт тебя ровно один день."
-    )
-    try:
-        bot.edit_message_text(
-            help_text,
-            message.chat.id,
-            message.message_id,
-            parse_mode='Markdown',
-            reply_markup=get_main_menu()
-        )
-    except:
-        bot.send_message(
-            message.chat.id,
-            help_text,
-            parse_mode='Markdown',
-            reply_markup=get_main_menu()
-        )
-
-@bot.message_handler(func=lambda message: True)
-def echo_all(message):
-    bot.send_message(
-        message.chat.id,
-        "🌟 Нажми на кнопку в меню!",
-        reply_markup=get_main_menu()
-    )
-
-@bot.message_handler(commands=['stats'])
-def show_stats(message):
-    ADMIN_ID = 605421591
-    
-    if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "⛔ Эта команда доступна только владельцу бота.")
-        return
-    
-    user_count = count_users()
-    today_count = count_today_users()
-    
-    stats_text = (
-        f"📊 *Статистика бота*\n\n"
-        f"👥 Всего пользователей: *{user_count}*\n"
-        f"📅 Получили карту сегодня: *{today_count}*\n"
-        f"🃏 Карт в колоде: *78*\n\n"
-        f"✨ Магия продолжается!"
-    )
-    bot.reply_to(message, stats_text, parse_mode='Markdown')
 
 # ========== ЗАПУСК ==========
-print("🤖 Бот с ежедневными картами запущен!")
+print("🤖 Бот с ежедневными картами и подпиской запущен!")
 bot.infinity_polling()
