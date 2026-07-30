@@ -7,7 +7,80 @@ BOT_TOKEN = '8783106291:AAGQSNaDMOPJ-Vh4eQz7EXl74v02yqdKGkY'
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# ========== ВСЕ КАРТЫ ТАРО ==========
+# ========== ФУНКЦИЯ ДЛЯ ГЕНЕРАЦИИ ССЫЛКИ НА КАРТИНКУ ==========
+
+def get_card_image(card_name, suit):
+    """
+    Генерирует ссылку на картинку карты Таро.
+    """
+    # Базовый URL Azure-хранилища
+    base_url = "https://ishtarcollective.blob.core.windows.net/rider-waite-tarot/"
+    
+    # Словарь соответствия мастей на английском
+    suit_map = {
+        "Старшие Арканы": "major",
+        "Жезлы": "wands",
+        "Кубки": "cups",
+        "Мечи": "swords",
+        "Пентакли": "pentacles"
+    }
+    
+    # Словарь соответствия названий карт и номеров для Старших Арканов
+    major_numbers = {
+        "Шут": 0,
+        "Маг": 1,
+        "Верховная Жрица": 2,
+        "Императрица": 3,
+        "Император": 4,
+        "Иерофант": 5,
+        "Влюбленные": 6,
+        "Колесница": 7,
+        "Сила": 8,
+        "Отшельник": 9,
+        "Колесо Фортуны": 10,
+        "Справедливость": 11,
+        "Повешенный": 12,
+        "Смерть": 13,
+        "Умеренность": 14,
+        "Дьявол": 15,
+        "Башня": 16,
+        "Звезда": 17,
+        "Луна": 18,
+        "Солнце": 19,
+        "Суд": 20,
+        "Мир": 21
+    }
+    
+    # Словарь соответствия названий и номеров для Младших Арканов
+    minor_numbers = {
+        "Туз": 1, "Двойка": 2, "Тройка": 3, "Четверка": 4,
+        "Пятерка": 5, "Шестерка": 6, "Семерка": 7, "Восьмерка": 8,
+        "Девятка": 9, "Десятка": 10, "Паж": 11, "Рыцарь": 12,
+        "Королева": 13, "Король": 14
+    }
+    
+    # Получаем масть на английском
+    suit_en = suit_map.get(suit, "major")
+    
+    # Определяем номер карты
+    if suit == "Старшие Арканы":
+        number = major_numbers.get(card_name, 0)
+    else:
+        # Для Младших Арканов нужно извлечь числительное из названия
+        # Например: "Туз Жезлов" → "Туз"
+        for key, value in minor_numbers.items():
+            if card_name.startswith(key):
+                number = value
+                break
+        else:
+            number = 1  # Если не нашли, ставим 1
+    
+    # Формируем имя файла: масть-номер.jpg
+    filename = f"{suit_en}-{number}.jpg"
+    
+    return base_url + filename
+
+# ========== ВСЕ КАРТЫ ТАРО (ТВОИ УНИКАЛЬНЫЕ ОПИСАНИЯ) ==========
 
 # ---------- СТАРШИЕ АРКАНЫ ----------
 major_arcana = [
@@ -440,9 +513,14 @@ def send_welcome(message):
 
 @bot.message_handler(commands=['card'])
 def send_tarot_card(message):
+    # Выбираем случайную карту
     card = random.choice(all_cards)
     
-    response = (
+    # Получаем ссылку на картинку
+    image_url = get_card_image(card['name'], card['suit'])
+    
+    # Формируем текст сообщения
+    response_text = (
         f"🌟 *Твоя карта дня:*\n\n"
         f"🃏 *{card['name']}*\n"
         f"📜 *{card['suit']}*\n\n"
@@ -451,7 +529,18 @@ def send_tarot_card(message):
         f"✨ Пусть этот день принесет тебе мудрость и вдохновение!"
     )
     
-    bot.reply_to(message, response, parse_mode='Markdown')
+    # Отправляем картинку с подписью
+    try:
+        bot.send_photo(
+            message.chat.id,
+            photo=image_url,
+            caption=response_text,
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        # Если картинка не загрузилась, отправляем только текст
+        print(f"Ошибка при отправке картинки: {e}")
+        bot.reply_to(message, response_text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['info'])
 def send_info(message):
