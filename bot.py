@@ -666,9 +666,11 @@ def send_welcome(message):
                 photo,
                 caption=welcome_text,
                 parse_mode='Markdown',
-                reply_markup=get_main_menu() # ВАЖНО: Здесь обычное меню, без подписки!
+                reply_markup=get_main_menu()  # <--- ВАЖНО: используем обычное меню
             )
-    except:
+    except Exception as e:
+        # Если картинка не найдется, бот отправит просто текст (и напишет ошибку в логи)
+        print(f"Ошибка с картинкой: {e}")
         bot.send_message(
             message.chat.id,
             welcome_text,
