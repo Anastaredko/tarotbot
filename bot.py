@@ -623,7 +623,7 @@ def send_welcome(message):
     )
 
     # Отправляем нашу новую квадратную картинку
-    image_path = "welcome.jpg"
+    image_path = "images/welcome.jpg"
     
     try:
         with open(image_path, 'rb') as photo:
