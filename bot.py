@@ -786,7 +786,10 @@ def echo_all(message):
 
 @bot.message_handler(commands=['stats'])
 def show_stats(message):
+    # ТВОЙ ID (мы его проверим прямо в чате, чтобы убедиться, что он правильный)
     ADMIN_ID = 605421591
+    
+    # Если нажал не ты — выход
     if message.from_user.id != ADMIN_ID:
         bot.reply_to(message, "⛔ Эта команда доступна только владельцу бота.")
         return
