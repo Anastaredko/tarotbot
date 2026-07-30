@@ -615,19 +615,33 @@ def send_card(message, is_today=True):
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    # Текст после нажатия кнопки "Start" (короткий и по делу)
     welcome_text = (
         f"Привет, {message.from_user.first_name}! ✨\n\n"
-        f"Раз ты здесь, значит, жаждешь узнать, что сегодняшний день приготовил для тебя.\n"
+        f"Раз ты здесь, значит, ждёшь узнать, что сегодняшний день приготовил для тебя.\n"
         f"Я уже всё приготовила, чтобы тебе не пришлось попусту гадать. 🃏\n\n"
         f"👇 Нажимай «Карта дня» и получай своё послание!"
     )
-    bot.send_message(
-        message.chat.id,
-        welcome_text,
-        parse_mode='Markdown',
-        reply_markup=get_main_menu()
-    )
+
+    # Отправляем нашу новую квадратную картинку
+    image_path = "welcome.jpg"
+    
+    try:
+        with open(image_path, 'rb') as photo:
+            bot.send_photo(
+                message.chat.id,
+                photo,
+                caption=welcome_text,
+                parse_mode='Markdown',
+                reply_markup=get_main_menu()
+            )
+    except FileNotFoundError:
+        # Если сервер почему-то не увидит картинку, бот просто отправит текст
+        bot.send_message(
+            message.chat.id,
+            welcome_text,
+            parse_mode='Markdown',
+            reply_markup=get_main_menu()
+        )
 
 @bot.message_handler(commands=['card'])
 def card_command(message):
