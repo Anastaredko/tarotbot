@@ -306,13 +306,24 @@ def handle_callback(call):
     elif call.data == "help":
         send_help(call.message)
     elif call.data == "menu":
-        bot.edit_message_text(
-            "🔮 *Главное меню*\n\nВыбери действие:",
-            call.message.chat.id,
-            call.message.message_id,
-            parse_mode='Markdown',
-            reply_markup=get_main_menu()
-        )
+        # Возвращаем главное меню (редактируем сообщение)
+        try:
+            bot.edit_message_text(
+                "🔮 *Главное меню*\n\nВыбери действие:",
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                parse_mode='Markdown',
+                reply_markup=get_main_menu()
+            )
+        except Exception as e:
+            # Если не получилось отредактировать — отправляем новое сообщение
+            bot.send_message(
+                call.message.chat.id,
+                "🔮 *Главное меню*\n\nВыбери действие:",
+                parse_mode='Markdown',
+                reply_markup=get_main_menu()
+            )
+            print(f"Ошибка при редактировании: {e}")
 
 def send_info(message):
     info_text = (
