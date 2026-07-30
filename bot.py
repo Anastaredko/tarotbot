@@ -658,7 +658,7 @@ def send_welcome(message):
         f"👇 Нажимай «Карта дня» и получай своё послание!"
     )
     
-    image_path = "welcome.jpg"
+    image_path = "images/welcome.jpg"
     try:
         with open(image_path, 'rb') as photo:
             bot.send_photo(
