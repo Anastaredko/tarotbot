@@ -709,14 +709,36 @@ def handle_callback(call):
                 reply_markup=get_main_menu()
             )
             
-    # === ОБРАБОТЧИКИ ВЕЧЕРНЕГО ВОПРОСА ===
+      # === ОБРАБОТЧИКИ ВЕЧЕРНЕГО ВОПРОСА ===
     elif call.data == "feedback_yes" or call.data == "feedback_no" or call.data == "feedback_maybe":
-        # Пользователь ответил на вечерний вопрос. Помечаем это в базе.
+        # Пользователь ответил. Помечаем в базе.
         mark_feedback_received(call.from_user.id)
         
-        response_text = "Спасибо, что поделилась! 💜 Очень ценю твой отклик."
+        # Маппим текст ответа
+        feedback_text_map = {
+            "feedback_yes": "💫 Да, очень помогла!",
+            "feedback_maybe": "🤔 Было полезно",
+            "feedback_no": "😕 Не особо"
+        }
+        feedback_text = feedback_text_map.get(call.data, "Неизвестный ответ")
+
+        # ----------------------
+        # ПЕРЕСЫЛАЕМ ТЕБЕ В ЛИЧКУ!
+        # ----------------------
+        ADMIN_ID = 605421591  # Твой ID
+        try:
+            bot.send_message(
+                ADMIN_ID,
+                f"📩 *Новый отзыв от пользователя*\n"
+                f"🆔 ID: `{call.from_user.id}`\n"
+                f"👤 Имя: {call.from_user.first_name}\n"
+                f"📝 Ответ: {feedback_text}"
+            )
+        except:
+            pass # Если не получится отправить, просто пропускаем
+        # ----------------------
         
-        # ТЕПЕРЬ ПРЕДЛАГАЕМ ПОДПИСКУ (Вместо вопроса)
+        response_text = "Спасибо, что поделилась! 💜 Очень ценю твой отклик."
         response_text += "\n\nКстати! Хочешь, чтобы я присылала тебе карту дня автоматически по утрам? Выбери удобное время:"
         
         bot.edit_message_text(
