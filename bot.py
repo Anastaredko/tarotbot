@@ -4,7 +4,7 @@ import os
 import sqlite3
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ========== НАСТРОЙКИ ==========
@@ -882,16 +882,18 @@ def send_evening_feedback():
         except Exception as e:
             print(f"❌ ОШИБКА при отправке пользователю {user_id}: {e}")
 
+# ========== РАССЫЛКА ПО РАСПИСАНИЮ ==========
 def scheduler():
     while True:
-        now = datetime.now().strftime("%H:%M")
+        # Сдвигаем время на +3 часа (твой пояс МСК/Латвия)
+        now = (datetime.utcnow() + timedelta(hours=3)).strftime("%H:%M")
         
-        # Проверяем, не пора ли разослать утренние карты (9, 10, 11 часов)
+        # Рассылка карт в 9:00, 10:00, 11:00 по твоему времени
         if now in ["09:00", "10:00", "11:00"]:
             send_morning_cards()
-            time.sleep(60) # Спим минуту, чтобы не повторять
-        
-        # Отправляем вечерний вопрос в 20:00
+            time.sleep(60) 
+
+        # Вечерний вопрос ровно в 20:00 по твоему времени
         if now == "20:00":
             send_evening_feedback()
             time.sleep(60)
