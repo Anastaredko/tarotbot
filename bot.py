@@ -689,7 +689,8 @@ def send_card(message, is_today=True):
     user_id = message.chat.id
     user_card = get_user_card(user_id)
     
-        if user_card:
+    # ОШИБКА БЫЛА ЗДЕСЬ (УБРАЛ ЛИШНИЙ ОТСТУП)
+    if user_card:
         card_name, card_suit, card_meaning, card_number, date = user_card
         response_text = (
             f"🌟 *Твоя карта дня уже ждала тебя!*\n\n"
@@ -703,27 +704,31 @@ def send_card(message, is_today=True):
         if image_path:
             with open(image_path, 'rb') as photo:
                 bot.send_photo(message.chat.id, photo, caption=response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
-            else:
-        card = random.choice(all_cards)
-        card_number = card_numbers.get(card['name'], "00")
-        save_user_card(user_id, card['name'], card['suit'], card['meaning'], card_number)
-
-        response_text = (
-            f"🌟 *Твоя карта дня:*\n\n"
-            f"🃏 *{card['name']}*\n"
-            f"📜 *{card['suit']}*\n\n"
-            f"_{card['meaning']}_\n\n"
-            f"🧙‍♀️ *Совет дня:*\n"
-            f"_{card['advice']}_\n\n"
-            f"✨ Сохрани это послание в своём сердце на сегодня."
-        )
-
-        image_path = find_image(card_number)
-        if image_path:
-            with open(image_path, 'rb') as photo:
-                bot.send_photo(message.chat.id, photo, caption=response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
         else:
             bot.send_message(message.chat.id, response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
+        return  # <--- ВАЖНО! После отправки старой карты выходим из функции
+
+    # Если карты нет - создаём новую
+    card = random.choice(all_cards)
+    card_number = card_numbers.get(card['name'], "00")
+    save_user_card(user_id, card['name'], card['suit'], card['meaning'], card_number)
+
+    response_text = (
+        f"🌟 *Твоя карта дня:*\n\n"
+        f"🃏 *{card['name']}*\n"
+        f"📜 *{card['suit']}*\n\n"
+        f"_{card['meaning']}_\n\n"
+        f"🧙‍♀️ *Совет дня:*\n"
+        f"_{card['advice']}_\n\n"
+        f"✨ Сохрани это послание в своём сердце на сегодня."
+    )
+
+    image_path = find_image(card_number)
+    if image_path:
+        with open(image_path, 'rb') as photo:
+            bot.send_photo(message.chat.id, photo, caption=response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
+    else:
+        bot.send_message(message.chat.id, response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
 
 # ========== КОМАНДЫ И КНОПКИ ==========
 @bot.message_handler(commands=['start'])
@@ -743,10 +748,9 @@ def send_welcome(message):
                 photo,
                 caption=welcome_text,
                 parse_mode='Markdown',
-                reply_markup=get_main_menu()  # <--- ВАЖНО: используем обычное меню
+                reply_markup=get_main_menu()
             )
     except Exception as e:
-        # Если картинка не найдется, бот отправит просто текст (и напишет ошибку в логи)
         print(f"Ошибка с картинкой: {e}")
         bot.send_message(
             message.chat.id,
@@ -786,18 +790,17 @@ def handle_callback(call):
                 reply_markup=get_main_menu()
             )
             
-      # === ОБРАБОТЧИКИ ВЕЧЕРНЕГО ВОПРОСА ===
+    # === ОБРАБОТЧИКИ ВЕЧЕРНЕГО ВОПРОСА ===
     elif call.data == "feedback_yes" or call.data == "feedback_no" or call.data == "feedback_maybe":
-        # Пользователь ответил. Помечаем в базе.
         mark_feedback_received(call.from_user.id)
         
-        # Маппим текст ответа
         feedback_text_map = {
             "feedback_yes": "💫 Да, очень помогла!",
             "feedback_maybe": "🤔 Было полезно",
             "feedback_no": "😕 Не особо"
         }
         feedback_text = feedback_text_map.get(call.data, "Неизвестный ответ")
+        # ... (дальше идет твой код с уведомлением ADMIN_ID и предложением подписки)
 
         # ----------------------
         # ПЕРЕСЫЛАЕМ ТЕБЕ В ЛИЧКУ!
