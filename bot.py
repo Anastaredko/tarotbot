@@ -4,6 +4,7 @@ import os
 import sqlite3
 import time
 import threading
+import requests
 from datetime import datetime, timedelta
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
@@ -11,6 +12,13 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 BOT_TOKEN = '8783106291:AAGa-qjrDKxTWMIUV6gYAA5vkIHskfF3ER0'
 
 bot = telebot.TeleBot(BOT_TOKEN)
+
+# ========== АНТИ-409 ЗАЩИТА ==========
+try:
+    requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=True")
+    print("🛡️ Анти-409: Успешно сброшен вебхук и очищены старые подключения.")
+except Exception as e:
+    print(f"⚠️ Анти-409: Ошибка сброса (может быть, нет подключения), но пробуем запуститься: {e}")
 
 # ========== ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ ==========
 def init_db():
@@ -22,11 +30,13 @@ def init_db():
             card_name TEXT,
             card_suit TEXT,
             card_meaning TEXT,
+            card_advice TEXT,
             card_number TEXT,
             date TEXT,
             subscribed INTEGER DEFAULT 0,
             sub_time TEXT DEFAULT NULL,
-            received_feedback_today INTEGER DEFAULT 0
+            received_feedback_today INTEGER DEFAULT 0,
+            feedback_sent INTEGER DEFAULT 0
         )
     ''')
     conn.commit()
@@ -74,24 +84,23 @@ def get_users_for_feedback():
     conn = sqlite3.connect('tarot_bot.db')
     cursor = conn.cursor()
     today = datetime.now().strftime('%Y-%m-%d')
-    # Находим тех, кто получил карту сегодня, но еще не получал вечерний вопрос
     cursor.execute('''
         SELECT user_id FROM users 
-        WHERE date = ? AND received_feedback_today = 0
+        WHERE date = ? AND feedback_sent = 0
     ''', (today,))
     users = cursor.fetchall()
     conn.close()
     return [user[0] for user in users]
 
-def save_user_card(user_id, card_name, card_suit, card_meaning, card_number):
+def save_user_card(user_id, card_name, card_suit, card_meaning, card_advice, card_number):
     conn = sqlite3.connect('tarot_bot.db')
     cursor = conn.cursor()
     today = datetime.now().strftime('%Y-%m-%d')
     
     cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, card_name, card_suit, card_meaning, card_number, date, received_feedback_today)
-        VALUES (?, ?, ?, ?, ?, ?, 0)
-    ''', (user_id, card_name, card_suit, card_meaning, card_number, today))
+        INSERT OR REPLACE INTO users (user_id, card_name, card_suit, card_meaning, card_advice, card_number, date, received_feedback_today, feedback_sent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)
+    ''', (user_id, card_name, card_suit, card_meaning, card_advice, card_number, today))
     
     conn.commit()
     conn.close()
@@ -102,7 +111,7 @@ def get_user_card(user_id):
     today = datetime.now().strftime('%Y-%m-%d')
     
     cursor.execute('''
-        SELECT card_name, card_suit, card_meaning, card_number, date
+        SELECT card_name, card_suit, card_meaning, card_advice, card_number, date
         FROM users
         WHERE user_id = ? AND date = ?
     ''', (user_id, today))
@@ -676,7 +685,7 @@ def get_after_card_menu():
 def get_subscribe_time_menu(user_id):
     keyboard = InlineKeyboardMarkup(row_width=1)
     buttons = [
-        InlineKeyboardButton("🌅 В 9:00", callback_data="sub_9"),
+        InlineKeyboardButton("🌅 В 9:00", callback_data="sub_09"),
         InlineKeyboardButton("☀️ В 10:00", callback_data="sub_10"),
         InlineKeyboardButton("🌤 В 11:00", callback_data="sub_11"),
         InlineKeyboardButton("🚫 Нет, спасибо", callback_data="sub_no"),
@@ -689,9 +698,8 @@ def send_card(message, is_today=True):
     user_id = message.chat.id
     user_card = get_user_card(user_id)
     
-    # ОШИБКА БЫЛА ЗДЕСЬ (УБРАЛ ЛИШНИЙ ОТСТУП)
     if user_card:
-        card_name, card_suit, card_meaning, card_number, date = user_card
+        card_name, card_suit, card_meaning, card_advice, card_number, date = user_card
         response_text = (
             f"🌟 *Твоя карта дня уже ждала тебя!*\n\n"
             f"🃏 *{card_name}*\n"
@@ -699,19 +707,17 @@ def send_card(message, is_today=True):
             f"_{card_meaning}_\n\n"
             f"✨ Сегодня тебя ждёт именно это послание. Вернись к нему в течение дня."
         )
-
         image_path = find_image(card_number)
         if image_path:
             with open(image_path, 'rb') as photo:
                 bot.send_photo(message.chat.id, photo, caption=response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
         else:
             bot.send_message(message.chat.id, response_text, parse_mode='Markdown', reply_markup=get_after_card_menu())
-        return  # <--- ВАЖНО! После отправки старой карты выходим из функции
+        return
 
-    # Если карты нет - создаём новую
     card = random.choice(all_cards)
     card_number = card_numbers.get(card['name'], "00")
-    save_user_card(user_id, card['name'], card['suit'], card['meaning'], card_number)
+    save_user_card(user_id, card['name'], card['suit'], card['meaning'], card['advice'], card_number)
 
     response_text = (
         f"🌟 *Твоя карта дня:*\n\n"
@@ -791,21 +797,24 @@ def handle_callback(call):
             )
             
     # === ОБРАБОТЧИКИ ВЕЧЕРНЕГО ВОПРОСА ===
-    elif call.data == "feedback_yes" or call.data == "feedback_no" or call.data == "feedback_maybe":
+    elif call.data in ["feedback_yes", "feedback_no", "feedback_maybe"]:
         mark_feedback_received(call.from_user.id)
         
+        # Ставим флаг, что вечерний вопрос был задан раз и навсегда
+        conn = sqlite3.connect('tarot_bot.db')
+        cursor = conn.cursor()
+        cursor.execute('UPDATE users SET feedback_sent = 1 WHERE user_id = ?', (call.from_user.id,))
+        conn.commit()
+        conn.close()
+
         feedback_text_map = {
             "feedback_yes": "💫 Да, очень помогла!",
             "feedback_maybe": "🤔 Было полезно",
             "feedback_no": "😕 Не особо"
         }
         feedback_text = feedback_text_map.get(call.data, "Неизвестный ответ")
-        # ... (дальше идет твой код с уведомлением ADMIN_ID и предложением подписки)
-
-        # ----------------------
-        # ПЕРЕСЫЛАЕМ ТЕБЕ В ЛИЧКУ!
-        # ----------------------
-        ADMIN_ID = 605421591  # Твой ID
+        
+        ADMIN_ID = 605421591
         try:
             bot.send_message(
                 ADMIN_ID,
@@ -815,8 +824,7 @@ def handle_callback(call):
                 f"📝 Ответ: {feedback_text}"
             )
         except:
-            pass # Если не получится отправить, просто пропускаем
-        # ----------------------
+            pass
         
         response_text = "Спасибо, что поделилась! 💜 Очень ценю твой отклик."
         response_text += "\n\nКстати! Хочешь, чтобы я присылала тебе карту дня автоматически по утрам? Выбери удобное время:"
@@ -831,7 +839,7 @@ def handle_callback(call):
     # === ОБРАБОТЧИКИ ВЫБОРА ВРЕМЕНИ ПОДПИСКИ ===
     elif call.data.startswith("sub_"):
         time_map = {
-            "sub_9": "9:00",
+            "sub_09": "09:00",
             "sub_10": "10:00",
             "sub_11": "11:00",
             "sub_no": None
@@ -839,7 +847,7 @@ def handle_callback(call):
         chosen_time = time_map.get(call.data)
         
         if call.data == "sub_no":
-            toggle_subscription(call.from_user.id, None) # Отписываем (или не подписываем)
+            toggle_subscription(call.from_user.id, None)
             bot.edit_message_text(
                 "Хорошо, зай! Тогда я буду рядом, когда ты захочешь заглянуть ко мне сама. 🔮",
                 chat_id=call.message.chat.id,
@@ -888,10 +896,7 @@ def echo_all(message):
 
 @bot.message_handler(commands=['stats'])
 def show_stats(message):
-    # ТВОЙ ID (мы его проверим прямо в чате, чтобы убедиться, что он правильный)
     ADMIN_ID = 605421591
-    
-    # Если нажал не ты — выход
     if message.from_user.id != ADMIN_ID:
         bot.reply_to(message, "⛔ Эта команда доступна только владельцу бота.")
         return
@@ -913,11 +918,16 @@ def send_morning_cards():
     users = get_subscribed_users()
     if not users:
         return
-    # ВАЖНО: Проверяем время по твоему часовому поясу (UTC+3)
+
     current_time = (datetime.utcnow() + timedelta(hours=3)).strftime("%H:%M")
     print(f"⏰ Проверка рассылки на {current_time}...")
     
     for user_id, sub_time in users:
+        if sub_time:
+            if len(sub_time) == 4 and ":" in sub_time:
+                h, m = sub_time.split(":")
+                sub_time = f"{int(h):02d}:{m}"
+                
         if sub_time == current_time:
             try:
                 fake_message = type('obj', (object,), {'chat': type('obj', (object,), {'id': user_id})})()
@@ -929,7 +939,7 @@ def send_morning_cards():
                 print(f"❌ Ошибка отправки user {user_id}: {e}")
 
 def send_evening_feedback():
-    print("🚨 ЗАПУЩЕНА ФУНКЦИЯ ОБРАТНОЙ СВЯЗИ!")  # Это появится в логах консоли
+    print("🚨 ЗАПУЩЕНА ФУНКЦИЯ ОБРАТНОЙ СВЯЗИ!")
     users = get_users_for_feedback()
     
     if not users:
@@ -963,18 +973,15 @@ def send_evening_feedback():
         except Exception as e:
             print(f"❌ ОШИБКА при отправке пользователю {user_id}: {e}")
 
-# ========== РАССЫЛКА ПО РАСПИСАНИЮ ==========
+# ========== ПЛАНИРОВЩИК ==========
 def scheduler():
     while True:
-        # Сдвигаем время на +3 часа (твой пояс МСК/Латвия)
         now = (datetime.utcnow() + timedelta(hours=3)).strftime("%H:%M")
         
-        # Рассылка карт в 9:00, 10:00, 11:00 по твоему времени
         if now in ["09:00", "10:00", "11:00"]:
             send_morning_cards()
-            time.sleep(60) 
+            time.sleep(60)
 
-        # Вечерний вопрос ровно в 20:00 по твоему времени
         if now == "20:00":
             send_evening_feedback()
             time.sleep(60)
